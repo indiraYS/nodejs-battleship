@@ -11,6 +11,8 @@ export class BattleShip {
     private second: ShipAttack[] | undefined = undefined
     private secondId: string | undefined = undefined
 
+    public static BOT = 'bot'
+
     private bot: Bot|undefined
 
     constructor(id: string, ships: ShipPosition[]) {
@@ -20,7 +22,7 @@ export class BattleShip {
 
     public initBot() {
         this.bot = new Bot()
-        this.addSecond("0", this.bot.generate())
+        this.addSecond(BattleShip.BOT, this.bot.generate())
     }
 
     public getFirst(): [string, ShipAttack[]] {
@@ -60,38 +62,54 @@ export class BattleShip {
         return this.randomAttack(this.second!)
     }
 
-    public botAttack(): [AttackStatus, Boolean]{
+    public botAttack(): [AttackStatus, Boolean, Position] {
         if (this.bot == undefined) throw new Error('this is not bot game')
         let pos: Position|undefined = undefined
 
-        if (this.bot.lastsuccess) {
-            const dirs = this.bot.dirs(this.bot.lastsuccess.x, this.bot.lastsuccess.y)
-            
-            for (const dir of dirs) {
-                if (this.bot.visited.indexOf(dir) == -1) {
-                    if (dir.x > -1 && dir.y > -1 && dir.x < 10 && dir.y < 10) {
-                        pos = dir;
-                        break;
+        if (this.bot.lastsuccess.length > 0) {
+            let last = this.bot.lastsuccess.pop()
+            while (last !== undefined && pos ===undefined) {
+                const dirs = this.bot.dirs(last.x, last.y)
+                // console.log(dirs)
+                for (const dir of dirs) {
+                    console.log(this.bot.visited.length, dir)
+                    if (!this.bot.isVisited(dir)) {
+                        if (dir.x > -1 && dir.y > -1 && dir.x < 10 && dir.y < 10) {
+                            pos = dir;
+                            break;
+                        }
                     }
+                    console.log('------')
                 }
+                if (pos===undefined) last = this.bot.lastsuccess.pop()
             }
         } else {
             pos = new Position(randomInt(0, 9), randomInt(0, 9))
-            while (this.bot.visited.indexOf(pos) > -1) {
+            let is_visited = this.bot.isVisited(pos)
+            while (is_visited) {
                 pos = new Position(randomInt(0, 9), randomInt(0, 9))
+                console.log("check:", pos)
+                is_visited = this.bot.isVisited(pos)
             }
+            console.log("next is", pos)
         }
         if (pos == undefined) throw new Error("bot attack pos undefined")
         const [st, ruined, shipPos] = this.attackFirst(pos)
         
         if (st == AttackStatus.KILLED) {
-            this.bot.lastsuccess = undefined // to search next random place
+            while(this.bot.lastsuccess.length > 0) {
+                this.bot.lastsuccess.pop()
+            }  // to search next random place
             this.bot.visited.push(...this.neigbours(shipPos!))
         } else if (st == AttackStatus.SHOT) {
-            this.bot.lastsuccess = pos
+            this.bot.lastsuccess.push(pos)
+        } else {
+            if (this.bot.lastsuccess.length > 0) {
+                this.bot.lastsuccess.pop()
+            }
         }
         this.bot.visited.push(pos)
-        return [st, ruined]
+        return [st, ruined, pos]
     }
 
     public neigbours(pos: ShipPosition): Position[] {

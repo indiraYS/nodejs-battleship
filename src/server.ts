@@ -15,6 +15,8 @@ import { Finish } from './model/payload/finish/Finish';
 import { AttackResult } from './model/payload/attack/AttackResult';
 import AttackStatus from './model/payload/attack/AttackStatus';
 import { RandomAttack } from './model/payload/attack/RandomAttack';
+import { AttackResultMessage } from './model/payload/attack/AttackResultMessage';
+import { BattleShip } from './model/internal/BattleShip';
 
 let wss: WebSocketServer = new WebSocketServer({ port: 3000 });
 
@@ -73,16 +75,16 @@ wss.on('connection', (ws) => {
             }
             break;
           case MessageType.SINGLE_PLAY: // bot
-            const singleRoom = handler.singlePlayRoom(userId)            
+            const singleRoom = handler.singlePlayRoom(userId)
             broadcast.push(GameMessage.make(MessageType.UPDATE_ROOM, handler.updateRoom()))
             personal.push(GameMessage.make(MessageType.CREATE_GAME, new Game(singleRoom, userId)))
-          
+
             break;
           case MessageType.ADD_SHIPS:
             const addShips = handler.payload<AddShips>(incomming.data)
             if (handler.addShips(addShips)) {
               const game = handler.startGame(addShips.gameId, addShips.indexPlayer)
-              
+
               if (game[0].currentPlayerIndex === userId) {
                 personal.push(GameMessage.make(MessageType.START_GAME, game[0]))
                 opponentMessage = [game[1].currentPlayerIndex, GameMessage.make(MessageType.START_GAME, game[1])]
@@ -101,6 +103,15 @@ wss.on('connection', (ws) => {
             if (handler.getTurn(attackPayload.gameId) != attackPayload.indexPlayer) break;
             console.log('attack proceed', userId, attackPayload.indexPlayer)
             const attackResult = handler.attack(attackPayload)
+
+            if (attackResult.status == AttackStatus.MISS) {
+              handler.changeTurn(attackPayload.gameId)
+              if (handler.players(attackPayload.gameId)[1] == BattleShip.BOT) // next is bot ??
+              {
+                queue.push(() =>  { botAttack(attackPayload.gameId) })
+              }
+            }
+
             const attackNotifications = handler.attackNotification(attackPayload, attackResult)
             if (attackNotifications.personal) personal = attackNotifications.personal
             if (attackNotifications.opponentMessage) opponentMessage = attackNotifications.opponentMessage
@@ -109,8 +120,10 @@ wss.on('connection', (ws) => {
             break;
           case MessageType.RANDOMATTACK:
             const randomAttack = handler.payload<RandomAttack>(incomming.data)
-            const randomAttackResult = handler.randomAttack(randomAttack)
-            const rNotifications = handler.attackNotification(randomAttack, randomAttackResult)
+            const rAttackResult = handler.randomAttack(randomAttack)
+            if (rAttackResult.status == AttackStatus.MISS) handler.changeTurn(randomAttack.gameId)
+
+            const rNotifications = handler.attackNotification(randomAttack, rAttackResult)
             if (rNotifications.personal) personal = rNotifications.personal
             if (rNotifications.opponentMessage) opponentMessage = rNotifications.opponentMessage
             if (rNotifications.both) both = rNotifications.both
@@ -158,6 +171,32 @@ function sendToUser(userId: string, message: GameMessage) {
     userWs.send(JSON.stringify(message))
   }
 }
+
+const queue : (() => void)[] = []
+
+function botAttack(gameId: string): void {
+    const [opponent, st, ruined, pos] = handler.botAttack(gameId)
+    let playerMessage: GameMessage
+    if (st == AttackStatus.MISS) {
+      handler.changeTurn(gameId)
+    } else {
+      //setTimeout(() => { }, 2000)
+     queue.push(() =>  {
+      return botAttack(gameId);
+     })
+    }
+    if (!ruined) {
+      playerMessage = GameMessage.make(MessageType.ATTACK, new AttackResultMessage(pos.x, pos.y, BattleShip.BOT, st))
+    } else {
+      playerMessage = GameMessage.make(MessageType.FINISH, new Finish(BattleShip.BOT))
+    }
+    sendToUser(opponent, playerMessage)
+}
+
+setInterval(() => {
+  const fn = queue.pop();
+  if (fn!=undefined) fn()
+}, 1000)
 
 
 process.on('SIGINT', function () {

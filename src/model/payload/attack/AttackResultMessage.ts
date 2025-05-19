@@ -1,14 +1,14 @@
 import AttackStatus from "./AttackStatus"
 import { Position } from "../game/Position";
 
-export class AttackResultMessage{ 
+export class AttackResultMessage { 
     readonly position: Position 
-    readonly indexPlayer: string
+    readonly currentPlayer: string
     readonly status: AttackStatus
 
-    constructor (x: number,y: number, indexPlayer: string, status: AttackStatus) {
+    constructor (x: number,y: number, currentPlayer: string, status: AttackStatus) {
         this.position = new Position(x, y)
-        this.indexPlayer = indexPlayer
+        this.currentPlayer = currentPlayer
         this.status = status
     }
 }

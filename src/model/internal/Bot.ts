@@ -6,9 +6,21 @@ import AttackStatus from "../payload/attack/AttackStatus";
 
 
 export class Bot {
-    public lastsuccess: Position | undefined
+    public lastsuccess: Position[] = []
     public visited: Position[] = []
 
+    public isVisited (p: Position) {
+        let visited = false;
+
+        for (const pp of this.visited) {
+            if (p.x == pp.x && p.y == pp.y) {
+                visited = true
+                break
+            }
+        }
+        return visited
+    }
+ 
     public generate(): ShipPosition[] {
         const res: ShipPosition[] = []
         const required: Map<number, number> = new Map<number, number>()

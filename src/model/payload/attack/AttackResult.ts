@@ -2,24 +2,22 @@ import { Position } from "../game/Position";
 import AttackStatus from "./AttackStatus";
 
 export class AttackResult {
-    readonly position: Position
+    readonly goal: Position
     readonly currentPlayer: string
     readonly status: AttackStatus
     readonly ruined: boolean
-    private _neighbors: Position[]|undefined
+    private _neigbours: Position[]|undefined = undefined
 
-    constructor (position: Position, player: string, st: AttackStatus, ruined: boolean) {
-        this.position = position
+    constructor (x: number, y: number, player: string, st: AttackStatus, ruined: boolean) {
+        this.goal = new Position(x, y)
         this.currentPlayer = player
         this.status = st
         this.ruined = ruined
     }
 
-    public setNeightbors(neighbors: Position[]) {
-        this._neighbors = neighbors
-    }
+    public get neigbours() { return this._neigbours; }
 
-    public get neighbors() {
-        return this._neighbors
+    public setNeigbours(n: Position[]) {
+        this._neigbours = n
     }
 }

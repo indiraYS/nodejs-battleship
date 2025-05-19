@@ -2,6 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {Player} from "../model/entity/Player";
 import { randomUUID } from 'node:crypto';
 import { Turn } from '../model/payload/turn/Turn';
+import { BattleShip } from '../model/internal/BattleShip';
 
 class Userdatabase {
     private db = new DatabaseSync(':memory:');
@@ -41,7 +42,7 @@ class Userdatabase {
         `)
 
         /// --- create user bot
-        this.db.exec(`insert into user (id, name, password) values ('${randomUUID()}', 'bot', 'b0t#123')`)
+        this.db.exec(`insert into user (id, name, password) values ('${BattleShip.BOT}', 'bot', 'b0t#123')`)
     }
 
     static instance() {

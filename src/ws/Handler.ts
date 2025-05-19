@@ -16,10 +16,10 @@ import { RandomAttack } from "../model/payload/attack/RandomAttack";
 import AttackStatus from "../model/payload/attack/AttackStatus"
 import { Turn } from "../model/payload/turn/Turn";
 import { AttackResult } from "../model/payload/attack/AttackResult"
-import { AttackResultMessage } from "../model/payload/attack/AttackResultMessage"
 import { Finish } from "../model/payload/finish/Finish"
 import { AttackNotificatios } from "../model/internal/AttackNotifications"
 import { Attacker } from "../model/payload/attack/Attacker";
+import { AttackResultMessage } from "../model/payload/attack/AttackResultMessage";
 
 export class Handler {
     private database = db()
@@ -78,18 +78,18 @@ export class Handler {
     }
 
     public singlePlayRoom(userId: string): string {
-        const room =  this.database.singlePlayRoom(userId)
+        const room = this.database.singlePlayRoom(userId)
         this.createGame(room)
-        return room
+        return room;
     }
 
     // returns first playerId
-    public createGame(roomId: string): string {
+    public createGame(roomId: string): string | undefined {
         let room = this.database.findRoom(roomId)
         if (room == undefined) {
             throw Error("room not found")
         }
-        if (room == undefined || room.second_player_id == undefined) throw new Error("room empty or second player not defined")
+        if (room == undefined || room.second_player_id == undefined) return undefined
         this.database.createGame(roomId)
         return <string>room.first_player_id
     }
@@ -128,7 +128,6 @@ export class Handler {
         if (battle == undefined || battle.getSecond() == undefined) {
             throw new Error("unexpected case, positions must be ready")
         }
-        console.log(`first player is: ${battle.getFirstId()}`)
         this.database.setTurn(gameId, battle.getFirstId());
         const first = battle.getFirst()
         const gameFirst = new StartGame(first[0], first[1])
@@ -149,96 +148,88 @@ export class Handler {
         if (ruined) {
             this.saveWinner(attack.gameId, attack.indexPlayer)
             this.battleShips.delete(attack.gameId)
-        } else if (st == AttackStatus.MISS) {
-            this.database.changeTurn(attack.gameId)
-        }
-
-        const res = new AttackResult(new Position(attack.x, attack.y), attack.indexPlayer, st, ruined);
-
-        if (ship) {
-            res.setNeightbors(battle.neigbours(ship))
-        }
-
-        return res;
-        // return [st, ruined, ship]
-        //return this.attackNotification(attack.gameId, attack.indexPlayer, new Position(attack.x, attack.y), st, ruined, neighbors)
+        } 
+        // else if (st == AttackStatus.MISS) {
+        //     this.database.changeTurn(attack.gameId)
+        // }
+        const res = new AttackResult(attack.x, attack.y, attack.indexPlayer, st, ruined)
+        if (ship && st == AttackStatus.KILLED) res.setNeigbours(battle.neigbours(ship))
+        //return this.attackNotification(attack, res)
+        return res
     }
 
-    private botAttack(gameId: string) {
+    public botAttack(gameId: string): [string, AttackStatus, Boolean, Position] {
         const battle = this.battleShips.get(gameId)
         if (battle == undefined) throw new Error("battle not found")
-        const [st, ruined] = battle.botAttack()
+        const [st, ruined, pos] =  battle.botAttack()
+        
+        if (ruined) {
+            this.saveWinner(gameId, BattleShip.BOT)
+            this.battleShips.delete(gameId)
+        } 
+
+        return [battle.getFirstId(), st, ruined, pos]
     }
 
-    public attackNotification(attacker: Attacker, 
-        attack: AttackResult
-    ):
-        AttackNotificatios {
+    public attackNotification(
+        attacker: Attacker, 
+        result: AttackResult
+    ): AttackNotificatios {
         const [first, second] = this.players(attacker.gameId)
         let opponentMessage: [string, GameMessage] | undefined
         let both: [string, string, GameMessage] | undefined
         const broadcast: GameMessage[] = []
         let personal: GameMessage[] = []
-        if (!attack.ruined) {
+        if (!result.ruined) {
             let turnMessage: Turn
-            if (attack.status == AttackStatus.MISS) {
-                turnMessage = new Turn(first === attacker.indexPlayer ? second : first)
+            const opponentId = first === attacker.indexPlayer ? second : first
+
+            if (result.status == AttackStatus.MISS) {
+                turnMessage = new Turn(opponentId)
             } else {
                 turnMessage = new Turn(attacker.indexPlayer)
             }
             both = [first, second, GameMessage.make(MessageType.TURN, turnMessage)]
-            personal.push(GameMessage.make(MessageType.ATTACK, new AttackResultMessage(attack.position.x, attack.position.y, attacker.indexPlayer, attack.status)))
             
-            const opponentId = first === attacker.indexPlayer ? second : first
-            opponentMessage = [opponentId, GameMessage.make(MessageType.ATTACK, new AttackResultMessage(attack.position.x, attack.position.y, attacker.indexPlayer, attack.status))]
+            personal.push(GameMessage.make(MessageType.ATTACK, new AttackResultMessage(result.goal.x, result.goal.y, attacker.indexPlayer, result.status)))
+            
+            opponentMessage = [opponentId, GameMessage.make(MessageType.ATTACK, new AttackResultMessage(result.goal.x, result.goal.y, attacker.indexPlayer, result.status))]
 
-            if (attack.status == AttackStatus.KILLED && attack.neighbors) {
-                for (const n of attack.neighbors) {
+            if (result.status == AttackStatus.KILLED && result.neigbours) {
+                for (const n of result.neigbours) {
                     personal.push(GameMessage.make(MessageType.ATTACK, new AttackResultMessage(n.x, n.y, attacker.indexPlayer, AttackStatus.MISS)))
                 }
             }
         } else {
             broadcast.push(GameMessage.make(MessageType.UPDATE_WINNERS, this.getWinners()))
             both = [first, second, GameMessage.make(MessageType.FINISH, new Finish(attacker.indexPlayer))]
-            personal.push(GameMessage.make(MessageType.ATTACK, new AttackResultMessage(attack.position.x, attack.position.y, attacker.indexPlayer, attack.status)))
+            personal.push(GameMessage.make(MessageType.ATTACK, new AttackResultMessage(result.goal.x, result.goal.y, attacker.indexPlayer, result.status)))
         }
         return new AttackNotificatios(personal, opponentMessage, both, broadcast)
     }
 
-    public randomAttack(attack: RandomAttack) {
+    public randomAttack(attack: RandomAttack): AttackResult {
         const battle = this.battleShips.get(attack.gameId)
         if (battle == undefined) throw new Error("battle not found")
-        const [pos, st, ruined, ship] = (battle.getFirstId() == attack.indexPlayer) ? 
-    battle.randomAttackSecond() : battle.randomAttackFirst()
+        const [pos, st, ruined, ship] = (battle.getFirstId() == attack.indexPlayer) ? battle.randomAttackSecond() : battle.randomAttackFirst()
         
-        // let neighbors : Position[] | undefined = undefined
-        // if (ship) neighbors = battle.neigbours(ship)
-
         if (ruined) {
-            // console.log(`==== WINNER IS ===${attack.indexPlayer}`)
             this.saveWinner(attack.gameId, attack.indexPlayer)
             this.battleShips.delete(attack.gameId)
-        } else if (st == AttackStatus.MISS) {
-            this.database.changeTurn(attack.gameId)
-        }
+        } 
 
-        const res = new AttackResult(pos, attack.indexPlayer, st, ruined);
-
-        if (ship) {
-            res.setNeightbors(battle.neigbours(ship))
-        }
-
-        return res;
+        const res = new AttackResult(pos.x, pos.y, attack.indexPlayer, st, ruined)
+        if (ship && st == AttackStatus.KILLED) res.setNeigbours(battle.neigbours(ship))
+        return res
     }
 
-    public getNeigbours(gameId: string, ship: ShipPosition|undefined): Position[]|undefined {
-        if (!ship) return undefined
-        return this.battleShips.get(gameId)?.neigbours(ship)
+    public changeTurn(gameId: string) {
+        this.database.changeTurn(gameId)
     }
 
-    public getTurn(gameId: string) : string {
+    public getTurn (gameId: string) : string {
         const res = this.database.getTurn(gameId)
-        if (res == null) throw new Error('turn not found ' + gameId)
+        res ?? (() =>  { throw new Error("game turn not found") })()
         return res
     }
 
